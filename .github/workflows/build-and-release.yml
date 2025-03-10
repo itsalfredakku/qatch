@@ -8,6 +8,10 @@ on:
 env:
   DOTNET_VERSION: '7.0.x'
 
+permissions:
+  contents: write  # Required for creating releases
+  pull-requests: write  # Required for generating release notes
+
 jobs:
   build:
     name: Build and Package
@@ -70,5 +74,3 @@ jobs:
           files: |
             release-artifacts/*
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
