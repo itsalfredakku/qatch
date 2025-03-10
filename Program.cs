@@ -1,10 +1,17 @@
-﻿using System.Text.RegularExpressions;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Qatch
 {
-    internal static class Program
+    public static class Program
     {
-        internal static void Main(string?[] args)
+        private const int MinimumPatternLength = 2;
+
+        internal static void Main(string[] args)
         {
             if (args.Length < 3 || args.Contains("--help") || args.Contains("-h"))
             {
@@ -12,9 +19,9 @@ namespace Qatch
                 return;
             }
 
-            string? targetPath = null;
+            string targetPath = null;
             var createBackup = false;
-            var patterns = new List<KeyValuePair<string?, string?>>();
+            var patterns = new List<KeyValuePair<string, string>>();
 
             ParseArguments(args, ref targetPath, ref createBackup, patterns);
 
@@ -24,7 +31,6 @@ namespace Qatch
             {
                 if (createBackup) CreateBackup(targetPath);
 
-                if (targetPath == null) return;
                 var fileData = File.ReadAllBytes(targetPath);
                 var fileModified = ProcessPatterns(fileData, patterns);
 
@@ -36,38 +42,37 @@ namespace Qatch
             }
         }
 
-        static void PrintHelp()
+        private static void PrintHelp()
         {
             Console.WriteLine("Qatch - Quick Patch Tool");
-            Console.WriteLine("Usage: qatch.exe --target <target> [--backup] --find-replace <find:replace> [...]");
+            Console.WriteLine("Usage: qatch.exe --target <file> [--backup] [--find-replace <HEX:HEX>...]");
             Console.WriteLine("Options:");
-            Console.WriteLine("  --target, -t <target>       Target file to patch");
-            Console.WriteLine("  --backup, -b                Create backup with .BAK extension");
-            Console.WriteLine("  --find, -f <pattern>        Find pattern (requires --replace)");
-            Console.WriteLine("  --replace, -r <pattern>     Replace pattern (requires --find)");
-            Console.WriteLine("  --find-replace, -fr <f:r>  Combined find and replace pattern");
-            Console.WriteLine("  --help, -h                  Show this help");
+            Console.WriteLine("  --target, -t <PATH>      Target file to modify");
+            Console.WriteLine("  --backup, -b             Create backup (.BAK)");
+            Console.WriteLine("  --find-replace, -fr <PAT> Colon-separated hex patterns");
+            Console.WriteLine("  --help, -h               Show this help");
+            Console.WriteLine("\nPattern format:");
+            Console.WriteLine("  Use ?? for wildcard bytes (e.g., 01??A3:02??B4)");
+            Console.WriteLine("  Enclose patterns in quotes to prevent shell expansion");
         }
 
-        private static void ParseArguments(string?[] args, ref string? targetPath, 
-            ref bool createBackup, List<KeyValuePair<string?, string?>> patterns)
+        private static void ParseArguments(IReadOnlyList<string> args, ref string targetPath, 
+            ref bool createBackup, List<KeyValuePair<string, string>> patterns)
         {
-            for (var i = 0; i < args.Length; i++)
+            for (var i = 0; i < args.Count; i++)
             {
-                switch (args[i]?.ToLower())
+                switch (args[i].ToLower())
                 {
                     case "--target":
                     case "-t":
-                        if (i + 1 < args.Length) targetPath = args[++i];
+                        if (i + 1 < args.Count) targetPath = args[++i];
                         break;
+                    
                     case "--backup":
                     case "-b":
                         createBackup = true;
                         break;
-                    case "--find":
-                    case "-f":
-                        HandleFindReplacePair(args, ref i, patterns);
-                        break;
+                    
                     case "--find-replace":
                     case "-fr":
                         HandleCombinedPattern(args, ref i, patterns);
@@ -76,110 +81,106 @@ namespace Qatch
             }
         }
 
-        static void HandleFindReplacePair(string?[] args, ref int index, 
-            List<KeyValuePair<string?, string?>> patterns)
+        private static void HandleCombinedPattern(IReadOnlyList<string> args, ref int index,
+            List<KeyValuePair<string, string>> patterns)
         {
-            if (index + 1 >= args.Length) return;
-            var findPattern = args[++index];
-            
-            var replaceIndex = Array.FindIndex(args, index + 1, 
-                a => a == "--replace" || a == "-r");
-            
-            if (replaceIndex == -1 || replaceIndex >= args.Length - 1)
+            if (index + 1 >= args.Count)
             {
-                Console.WriteLine("Error: --find requires corresponding --replace");
+                Console.WriteLine("Error: Missing value for --find-replace");
                 return;
             }
 
-            patterns.Add(new KeyValuePair<string?, string?>(
-                findPattern, 
-                args[replaceIndex + 1]
-            ));
-            index = replaceIndex + 1;
-        }
-
-        static void HandleCombinedPattern(string?[] args, ref int index, 
-            List<KeyValuePair<string?, string?>> patterns)
-        {
-            if (index + 1 >= args.Length) return;
-            var parts = args[++index]?.Split(new[] { ':' }, 2);
-            
-            if (parts != null && parts.Length != 2)
+            var parts = args[++index].Split(new[] { ':' }, 2);
+            if (parts.Length != 2)
             {
                 Console.WriteLine("Error: Invalid find-replace format. Use <find>:<replace>");
                 return;
             }
 
-            patterns.Add(new KeyValuePair<string?, string?>(parts?[0], parts?[1]));
+            var find = parts[0].Trim();
+            var replace = parts[1].Trim();
+
+            if (string.IsNullOrEmpty(find)) Console.WriteLine("Error: Empty find pattern");
+            if (string.IsNullOrEmpty(replace)) Console.WriteLine("Error: Empty replace pattern");
+            
+            if (!string.IsNullOrEmpty(find) && !string.IsNullOrEmpty(replace))
+                patterns.Add(new KeyValuePair<string, string>(find, replace));
         }
 
-        static bool ValidateArguments(string? targetPath, List<KeyValuePair<string?, string?>> patterns)
+        private static bool ValidateArguments(string targetPath, List<KeyValuePair<string, string>> patterns)
         {
+            var valid = true;
+            
             if (string.IsNullOrEmpty(targetPath))
             {
                 Console.WriteLine("Error: Target path is required");
-                return false;
+                valid = false;
+            }
+            else if (!File.Exists(targetPath))
+            {
+                Console.WriteLine($"Error: File not found - {targetPath}");
+                valid = false;
             }
 
             if (patterns.Count == 0)
             {
                 Console.WriteLine("Error: At least one find-replace pattern required");
-                return false;
+                valid = false;
             }
 
-            if (!File.Exists(targetPath))
-            {
-                Console.WriteLine($"Error: File not found - {targetPath}");
-                return false;
-            }
-
-            return true;
+            return valid;
         }
 
-        private static void CreateBackup(string? targetPath)
+        private static void CreateBackup(string targetPath)
         {
             var backupPath = targetPath + ".BAK";
-            if (targetPath != null) File.Copy(targetPath, backupPath, true);
+            File.Copy(targetPath, backupPath, true);
             Console.WriteLine($"Created backup: {backupPath}");
         }
 
-        private static bool ProcessPatterns(byte[] fileData, List<KeyValuePair<string?, string?>> patterns)
+        private static bool ProcessPatterns(byte[] fileData, List<KeyValuePair<string, string>> patterns)
         {
-            var fileModified = false;
-
-            foreach (var pattern in patterns)
+            var modified = false;
+            
+            foreach (var (findPattern, replacePattern) in patterns)
             {
-                var findBytes = ParseHexPattern(pattern.Key);
-                var replaceBytes = ParseHexPattern(pattern.Value);
+                var findBytes = ParseHexPattern(findPattern);
+                var replaceBytes = ParseHexPattern(replacePattern);
 
-                if (!ValidatePatternPair(pattern.Key, pattern.Value, findBytes, replaceBytes))
+                if (!ValidatePatternPair(findPattern, replacePattern, findBytes, replaceBytes))
                     continue;
 
                 var matches = FindPatternMatches(fileData, findBytes);
                 if (matches.Count == 0)
                 {
-                    Console.WriteLine($"Pattern not found: {pattern.Key}");
+                    Console.WriteLine($"Pattern not found: {findPattern}");
                     continue;
                 }
 
-                fileModified |= ApplyReplacements(fileData, findBytes, replaceBytes, matches);
-                Console.WriteLine($"Replaced {matches.Count} instances of {pattern.Key}");
+                modified |= ApplyReplacements(fileData, findBytes, replaceBytes, matches);
+                Console.WriteLine($"Replaced {matches.Count} instances of: {findPattern}");
             }
 
-            return fileModified;
+            return modified;
         }
 
-        private static List<Tuple<byte, bool>>? ParseHexPattern(string? pattern)
+        private static List<Tuple<byte, bool>> ParseHexPattern(string pattern)
         {
-            var cleanPattern = Regex.Replace(pattern, "[^0-9A-Fa-f?]", "");
+            if (string.IsNullOrEmpty(pattern))
+                return null;
+
+            var cleanPattern = Regex.Replace(pattern.ToUpper(), "[^0-9A-F?]", "");
             var result = new List<Tuple<byte, bool>>();
 
-            if (cleanPattern.Length % 2 != 0) return null;
+            if (cleanPattern.Length % 2 != 0)
+            {
+                Console.WriteLine($"Error: Odd number of hex characters in pattern: {pattern}");
+                return null;
+            }
 
-            for (int i = 0; i < cleanPattern.Length; i += 2)
+            for (var i = 0; i < cleanPattern.Length; i += 2)
             {
                 var pair = cleanPattern.Substring(i, 2);
-                
                 if (pair == "??")
                 {
                     result.Add(Tuple.Create((byte)0, true));
@@ -188,71 +189,86 @@ namespace Qatch
                 {
                     try
                     {
-                        result.Add(Tuple.Create(
-                            Convert.ToByte(pair, 16),
-                            false
-                        ));
+                        var value = Convert.ToByte(pair, 16);
+                        result.Add(Tuple.Create(value, false));
                     }
                     catch
                     {
+                        Console.WriteLine($"Error: Invalid hex pair '{pair}' in pattern: {pattern}");
                         return null;
                     }
                 }
             }
 
+            if (result.Count < MinimumPatternLength)
+            {
+                Console.WriteLine($"Error: Pattern too short (min {MinimumPatternLength} bytes): {pattern}");
+                return null;
+            }
+
             return result;
         }
 
-        static bool ValidatePatternPair(string? findStr, string? replaceStr,
-            List<Tuple<byte, bool>>? find, List<Tuple<byte, bool>>? replace)
+        private static bool ValidatePatternPair(string findPattern, string replacePattern,
+            List<Tuple<byte, bool>> findBytes, List<Tuple<byte, bool>> replaceBytes)
         {
-            if (find == null || replace == null)
+            var valid = true;
+
+            if (findBytes == null)
             {
-                Console.WriteLine($"Invalid pattern: {findStr}:{replaceStr}");
-                return false;
+                Console.WriteLine($"Error: Invalid find pattern: {findPattern}");
+                valid = false;
             }
 
-            if (find.Count != replace.Count)
+            if (replaceBytes == null)
             {
-                Console.WriteLine($"Pattern length mismatch: {findStr} ({find.Count}) vs {replaceStr} ({replace.Count})");
-                return false;
+                Console.WriteLine($"Error: Invalid replace pattern: {replacePattern}");
+                valid = false;
             }
 
-            return true;
+            if (findBytes?.Count != replaceBytes?.Count)
+            {
+                Console.WriteLine("Error: Pattern length mismatch - " +
+                                  $"Find: {findBytes?.Count ?? 0} bytes, " +
+                                  $"Replace: {replaceBytes?.Count ?? 0} bytes");
+                valid = false;
+            }
+
+            return valid;
         }
 
-        static List<int> FindPatternMatches(byte[] data, List<Tuple<byte, bool>>? pattern)
+        private static List<int> FindPatternMatches(byte[] data, List<Tuple<byte, bool>> pattern)
         {
             var matches = new List<int>();
-            
-            for (int i = 0; i <= data.Length - pattern.Count; i++)
+            if (pattern == null || pattern.Count == 0) return matches;
+
+            for (var i = 0; i <= data.Length - pattern.Count; i++)
             {
-                if (IsPatternMatch(data, i, pattern))
-                    matches.Add(i);
+                var match = true;
+                for (var j = 0; j < pattern.Count; j++)
+                {
+                    if (pattern[j].Item2) continue; // Skip wildcards
+                    if (data[i + j] != pattern[j].Item1)
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) matches.Add(i);
             }
-            
             return matches;
         }
 
-        static bool IsPatternMatch(byte[] data, int start, List<Tuple<byte, bool>>? pattern)
+        private static bool ApplyReplacements(byte[] data, List<Tuple<byte, bool>> find,
+            List<Tuple<byte, bool>> replace, List<int> matches)
         {
-            for (int j = 0; j < pattern.Count; j++)
-            {
-                if (!pattern[j].Item2 && data[start + j] != pattern[j].Item1)
-                    return false;
-            }
-            return true;
-        }
-
-        static bool ApplyReplacements(byte[] data, List<Tuple<byte, bool>>? find,
-            List<Tuple<byte, bool>>? replace, List<int> matches)
-        {
-            bool modified = false;
+            var modified = false;
 
             foreach (var pos in matches)
             {
-                for (int i = 0; i < find.Count; i++)
+                for (var i = 0; i < find.Count; i++)
                 {
+                    // Only replace non-wildcard positions in find pattern
                     if (!find[i].Item2 && !replace[i].Item2)
                     {
                         data[pos + i] = replace[i].Item1;
@@ -264,7 +280,7 @@ namespace Qatch
             return modified;
         }
 
-        static void FinalizeFileChanges(string? path, byte[] data, bool modified)
+        private static void FinalizeFileChanges(string path, byte[] data, bool modified)
         {
             if (modified)
             {
