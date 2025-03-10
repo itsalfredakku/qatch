@@ -35,10 +35,9 @@ jobs:
       - name: Publish
         run: |
           dotnet publish qatch.csproj -c Release -o ./publish --no-build --nologo
-          # Remove PDB files
           find ./publish -name "*.pdb" -type f -delete
 
-      - name: Create release archive
+      - name: Create versioned archive
         run: |
           VERSION=$(grep -oP '<Version>\K[^<]+' qatch.csproj)
           zip -r qatch-v$VERSION.zip ./publish/*
@@ -47,8 +46,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: qatch-release
-          path: |
-            qatch-*.zip
+          path: qatch-*.zip
 
   release:
     name: Create Release
@@ -58,12 +56,31 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Get version from csproj
+      - name: Get base version
         id: get_version
         run: |
           VERSION=$(grep -oP '<Version>\K[^<]+' qatch.csproj)
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Compute release tag
+        id: compute_tag
+        run: |
+          BASE_TAG="v${{ steps.get_version.outputs.version }}"
+          MAX_BUILD=0
+
+          # Check existing tags
+          if git rev-list $BASE_TAG; then
+              echo "Base tag exists, checking for build increments..."
+              MAX_BUILD=$(git tag | grep "^${BASE_TAG}+" | cut -d+ -f2 | sort -n | tail -n1)
+              [ -z "$MAX_BUILD" ] && MAX_BUILD=0
+          fi
+
+          NEXT_BUILD=$((MAX_BUILD + 1))
+          NEW_TAG="${BASE_TAG}+${NEXT_BUILD}"
+          echo "new_tag=${NEW_TAG}" >> $GITHUB_OUTPUT
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -71,15 +88,21 @@ jobs:
           name: qatch-release
           path: ./release-artifacts
 
+      - name: Rename artifact with build tag
+        run: |
+          OLD_NAME="qatch-v${{ steps.get_version.outputs.version }}.zip"
+          NEW_NAME="qatch-${{ steps.compute_tag.outputs.new_tag }}.zip"
+          mv "./release-artifacts/$OLD_NAME" "./release-artifacts/$NEW_NAME"
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.get_version.outputs.version }}
-          name: Release v${{ steps.get_version.outputs.version }}
+          tag_name: ${{ steps.compute_tag.outputs.new_tag }}
+          name: Release ${{ steps.compute_tag.outputs.new_tag }}
           body: |
-            Automated release for version ${{ steps.get_version.outputs.version }}
-            Changes included in this release:
-            ${{ github.event.head_commit.message }}
+            Automated release with incremental build number
+            Base version: ${{ steps.get_version.outputs.version }}
+            Build number: +$(( ${MAX_BUILD:-0} + 1 ))
           files: |
             release-artifacts/qatch-*.zip
           generate_release_notes: true
