@@ -13,7 +13,7 @@ Qatch allows you to:
 ## Usage
 
 ```
-qatch.exe --target <target> [--backup] --find-replace <find-pattern:replace-pattern> [--find-replace <find-pattern:replace-pattern> ...]
+dotnet qatch.dll --target <target> [--backup] --find-replace <find-pattern:replace-pattern> [--find-replace <find-pattern:replace-pattern> ...]
 ```
 
 ### Options
