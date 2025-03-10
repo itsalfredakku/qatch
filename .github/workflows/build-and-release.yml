@@ -34,13 +34,13 @@ jobs:
 
       - name: Publish
         run: |
-          dotnet publish qatch.csproj -c Release -o ./publish --no-build --nologo
-          find ./publish -name "*.pdb" -type f -delete
+          dotnet publish qatch.csproj -c Release -o ./ --no-build --nologo
+          find ./ -name "*.pdb" -type f -delete
 
       - name: Create versioned archive
         run: |
           VERSION=$(grep -oP '<Version>\K[^<]+' qatch.csproj)
-          zip -r qatch-v$VERSION.zip ./publish/*
+          zip -r qatch-v$VERSION.zip ./*
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
