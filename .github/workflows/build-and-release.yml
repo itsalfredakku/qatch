@@ -9,8 +9,8 @@ env:
   DOTNET_VERSION: '7.0.x'
 
 permissions:
-  contents: write  # Required for creating releases
-  pull-requests: write  # Required for generating release notes
+  contents: write
+  pull-requests: write
 
 jobs:
   build:
@@ -33,13 +33,22 @@ jobs:
         run: dotnet build qatch.csproj --configuration Release --no-restore
 
       - name: Publish
-        run: dotnet publish qatch.csproj -c Release -o ./publish --no-build --nologo
+        run: |
+          dotnet publish qatch.csproj -c Release -o ./publish --no-build --nologo
+          # Remove PDB files
+          find ./publish -name "*.pdb" -type f -delete
+
+      - name: Create release archive
+        run: |
+          VERSION=$(grep -oP '<Version>\K[^<]+' qatch.csproj)
+          zip -r qatch-v$VERSION.zip ./publish/*
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: qatch-binaries
-          path: ./publish/
+          name: qatch-release
+          path: |
+            qatch-*.zip
 
   release:
     name: Create Release
@@ -59,7 +68,7 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: qatch-binaries
+          name: qatch-release
           path: ./release-artifacts
 
       - name: Create Release
@@ -72,5 +81,5 @@ jobs:
             Changes included in this release:
             ${{ github.event.head_commit.message }}
           files: |
-            release-artifacts/*
+            release-artifacts/qatch-*.zip
           generate_release_notes: true
