@@ -1,0 +1,74 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '8.0.x'
+
+jobs:
+  build:
+    name: Build and Package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore qatch.csproj
+
+      - name: Build
+        run: dotnet build qatch.csproj --configuration Release --no-restore
+
+      - name: Publish
+        run: dotnet publish qatch.csproj -c Release -o ./publish --no-build --nologo
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: qatch-binaries
+          path: ./publish/
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from csproj
+        id: get_version
+        run: |
+          VERSION=$(grep -oP '<Version>\K[^<]+' qatch.csproj)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: qatch-binaries
+          path: ./release-artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Release v${{ steps.get_version.outputs.version }}
+          body: |
+            Automated release for version ${{ steps.get_version.outputs.version }}
+            Changes included in this release:
+            ${{ github.event.head_commit.message }}
+          files: |
+            release-artifacts/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
