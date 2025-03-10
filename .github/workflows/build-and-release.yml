@@ -71,7 +71,6 @@ jobs:
           BASE_TAG="v${{ steps.get_version.outputs.version }}"
           MAX_BUILD=0
 
-          # Check existing tags
           if git rev-list $BASE_TAG; then
               echo "Base tag exists, checking for build increments..."
               MAX_BUILD=$(git tag | grep "^${BASE_TAG}+" | cut -d+ -f2 | sort -n | tail -n1)
@@ -81,6 +80,8 @@ jobs:
           NEXT_BUILD=$((MAX_BUILD + 1))
           NEW_TAG="${BASE_TAG}+${NEXT_BUILD}"
           echo "new_tag=${NEW_TAG}" >> $GITHUB_OUTPUT
+          echo "max_build=${MAX_BUILD}" >> $GITHUB_OUTPUT
+          echo "next_build=${NEXT_BUILD}" >> $GITHUB_OUTPUT
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -93,24 +94,6 @@ jobs:
           OLD_NAME="qatch-v${{ steps.get_version.outputs.version }}.zip"
           NEW_NAME="qatch-${{ steps.compute_tag.outputs.new_tag }}.zip"
           mv "./release-artifacts/$OLD_NAME" "./release-artifacts/$NEW_NAME"
-
-
-      - name: Compute release tag
-        id: compute_tag
-        run: |
-          BASE_TAG="v${{ steps.get_version.outputs.version }}"
-          MAX_BUILD=0
-
-          if git rev-list $BASE_TAG; then
-              MAX_BUILD=$(git tag | grep "^${BASE_TAG}+" | cut -d+ -f2 | sort -n | tail -n1)
-              [ -z "$MAX_BUILD" ] && MAX_BUILD=0
-          fi
-
-          NEXT_BUILD=$((MAX_BUILD + 1))
-          NEW_TAG="${BASE_TAG}+${NEXT_BUILD}"
-          echo "new_tag=${NEW_TAG}" >> $GITHUB_OUTPUT
-          echo "max_build=${MAX_BUILD}" >> $GITHUB_OUTPUT
-          echo "next_build=${NEXT_BUILD}" >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
