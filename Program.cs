@@ -45,7 +45,7 @@ namespace Qatch
         private static void PrintHelp()
         {
             Console.WriteLine("Qatch - Quick Patch Tool");
-            Console.WriteLine("Usage: qatch.exe --target <file> [--backup] [--find-replace <HEX:HEX>...]");
+            Console.WriteLine("Usage: dotnet qatch.dll --target <file> [--backup] [--find-replace <HEX:HEX>...]");
             Console.WriteLine("Options:");
             Console.WriteLine("  --target, -t <PATH>      Target file to modify");
             Console.WriteLine("  --backup, -b             Create backup (.BAK)");
